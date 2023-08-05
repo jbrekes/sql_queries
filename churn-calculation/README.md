@@ -1,12 +1,24 @@
 # Day-7 Churn Calculation in Games
 
-This repository contains a Databricks notebook that calculates Day-7 churn for specific games. The notebook extracts and processes game event data to determine whether players have churned (not played for 7 or more days) and aggregates the results for analysis.
+This repository contains a Databricks notebook that demonstrates advanced SQL skills by calculating Day-7 churn for specific games. The notebook extracts and processes game event data to determine whether players have churned (not played for 7 or more days) and aggregates the results for analysis.
 
 ## Tables Used
 
 1. `round_event_raw`: Contains data related to the rounds played in each game. This table provides information about the players, rounds, applications, and more.
 
 2. `room_lkp`: A lookup table that contains all available rooms (levels) designed for each game. This table provides additional information about the rooms, such as names and locations.
+
+## Highlights and Tools
+
+- **Widget Usage**: The notebook showcases the use of Databricks widgets to dynamically set the processing date, offering flexibility in analyzing different time periods.
+
+- **Common Table Expressions (CTEs)**: The SQL code employs CTEs to break down complex logic into manageable steps, enhancing code readability and maintainability.
+
+- **Window Functions**: The use of window functions, such as `ROW_NUMBER()` and `LEAD()`, enables advanced data manipulations and temporal analysis.
+
+- **Conditional Logic**: Conditional statements and calculations, including `CASE` expressions, are used to categorize and derive meaningful insights from the data.
+
+- **Delta Tables**: The notebook demonstrates the use of Delta tables to efficiently store and manage the churn analysis results, allowing for faster queries and optimizations.
 
 ## How It Works
 
@@ -24,21 +36,16 @@ This repository contains a Databricks notebook that calculates Day-7 churn for s
 
 ## How to Use
 
-1. Set the processing date using the widget (optional).
-
-2. Run each cell in the notebook sequentially.
-
-3. Review and analyze the results in the Delta table or perform further analysis using SQL queries.
-
-## Prerequisites
-
-- Databricks environment
-- Access to relevant game event data
-- Basic understanding of SQL and Databricks notebooks
+1. Clone this repository to your Databricks environment.
+2. Open the notebook `Churn_Analysis.ipynb` in your Databricks workspace.
+3. Set the processing date using the widget if needed.
+4. Execute each cell in sequence to perform the churn analysis.
+5. Explore the results in the generated Delta table.
+6. Customize the notebook or queries to match your specific game data and requirements.
 
 ## Contributing
 
-Contributions to this project are welcome. Feel free to submit pull requests or open issues for any enhancements or bug fixes.
+We welcome contributions from the community to enhance and improve this churn analysis notebook. If you find a bug, have a suggestion, or want to add a new feature, please feel free to open an issue or submit a pull request.
 
 ## License
 
@@ -46,5 +53,6 @@ This project is licensed under the [MIT License](LICENSE).
 
 ---
 
-Please note that you might need to adapt the content to match your specific use case, organization, and style preferences.
+Feel free to modify the content to match your specific use case, organization, and style preferences.
+
 
