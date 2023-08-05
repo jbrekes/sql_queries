@@ -13,15 +13,15 @@ SELECT (CASE WHEN '$dateToProcess' <> 'null' THEN DATE('$dateToProcess') ELSE DA
 ;
 
 -- COMMAND ----------
-
-CREATE OR REPLACE TEMP VIEW v0_rounds_raw AS
+-- Extract all rounds played in the last 21 days and sort them from the most recent to the oldest.
+CREATE OR REPLACE TEMP VIEW v0_rounds_raw AS  
   SELECT
   /* +broadcast(room) */
     round_start_dt,
     round_result_cd,
     a.account_id,
     a.application_cd,
-    a.application_family_name,
+    a.application_family,
     a.market_cd,
     room_stc.location AS room_location,
     room_stc.name AS room_name,
@@ -30,35 +30,30 @@ CREATE OR REPLACE TEMP VIEW v0_rounds_raw AS
       ELSE room_stc.order
     END AS room_order,
     CASE 
-      WHEN room.order_num IS NULL THEN 'Side Content'
       WHEN room.order_num BETWEEN 1 AND 100000 THEN 'Main Content'
-      WHEN room.order_num BETWEEN 100001 AND 200000 THEN 'EOC'
       ELSE 'Side Content'
     END AS main_content_ind,
     payer_ind,
     application_version_val,
-    CASE 
-      WHEN UPPER(a.application_family_name) = 'PANDA POP'
-      THEN round_end_map.bubbles_rem
-      ELSE round_moves_stc.remaining 
-    END AS moves_remaining_group,
+    moves_remaining_group,
     ROW_NUMBER() OVER(PARTITION BY a.application_cd, account_id, round_start_dt ORDER BY round_start_dttm DESC) AS rounds_order
-  FROM pr_analytics_delta.round_event a
-  LEFT JOIN pr_analytics_lkp.room room
+  FROM round_event_raw a
+  LEFT JOIN room_lkp room
   ON upper(a.room_stc.name) = upper(room.room_name)
     AND coalesce(upper(a.room_stc.location),'') = coalesce(upper(room.location_name),'')
     AND a.application_cd = room.application_cd
   WHERE round_start_dt BETWEEN DATE_ADD((SELECT date_to_process FROM dateToProcess), -21) AND (SELECT date_to_process FROM dateToProcess)
-    AND UPPER(a.application_family_name) IN ('COOKIE JAM', 'COOKIE JAM BLAST', 'PANDA POP', 'GENIES AND GEMS', 'FROZEN FREE FALL', 'FAMILY GUY')
+    AND UPPER(a.application_family) IN ('GAME 1', 'GAME 2', 'GAME 3', 'GAME 4')
 ;
 
 CREATE OR REPLACE TEMP VIEW v0_last_activity AS
+-- Evaluate the first round of each day and obtain the next day played in each case.
   SELECT
     round_start_dt,
     account_id,
     round_result_cd,
     application_cd,
-    application_family_name,
+    application_family,
     market_cd,
     room_location,
     room_name,
@@ -82,6 +77,7 @@ CREATE OR REPLACE TEMP VIEW v0_last_activity AS
 ;
 
 CREATE OR REPLACE TEMP VIEW v1_last_activity AS
+-- Get the difference in days between the current and the next round. If the player has not played since the last time, the current day -1 is used.
   SELECT
     *,
     DATEDIFF(CASE 
@@ -93,6 +89,7 @@ CREATE OR REPLACE TEMP VIEW v1_last_activity AS
 ;
 
 CREATE OR REPLACE TEMP VIEW v0_d7_churned AS
+-- If more than 7 days have passed since the last time the player has played, the player is classified as churned.
   SELECT
     *,
     CASE WHEN days_between > 07 THEN 1 ELSE 0 END AS churned_d07
@@ -100,11 +97,12 @@ CREATE OR REPLACE TEMP VIEW v0_d7_churned AS
 ;
 
 CREATE OR REPLACE TEMP VIEW churn_final AS
+-- Aggregate data for easier analysis and export to Tableau.
 SELECT
   (SELECT date_to_process FROM dateToProcess) AS date_to_process,
   round_start_dt,
   application_cd,
-  application_family_name,
+  application_family,
   market_cd,
   room_location,
   room_name,
@@ -123,7 +121,7 @@ GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
 -- COMMAND ----------
 
 -- MAGIC %python
--- MAGIC deltaLocation = 'dbfs:/mnt/jc-analytics-databricks-work/dv_analytics_adhoc/match_3_level_dashboard_churn'
+-- MAGIC deltaLocation = 'dbfs_location'
 -- MAGIC deltaDf = spark.sql("SELECT * FROM churn_final")
 -- MAGIC (deltaDf
 -- MAGIC   .write
@@ -136,19 +134,17 @@ GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
 -- COMMAND ----------
 
 -- MAGIC %python
--- MAGIC createDelta = "CREATE TABLE IF NOT EXISTS dv_analytics_adhoc.match_3_level_dashboard_churn USING delta LOCATION 'dbfs:/mnt/jc-analytics-databricks-work/dv_analytics_adhoc/match_3_level_dashboard_churn'"
+-- MAGIC createDelta = "CREATE TABLE IF NOT EXISTS sample_schema.d7_game_churn_analysis USING delta LOCATION 'dbfs_location'"
 -- MAGIC spark.sql(createDelta)
 
 -- COMMAND ----------
 
---OPTIMIZE dv_analytics_adhoc.atribec_147_churn;
---VACUUM dv_analytics_adhoc.atribec_147_churn;
+--OPTIMIZE sample_schema.d7_game_churn_analysis;
+--VACUUM sample_schema.d7_game_churn_analysis;
 
 -- COMMAND ----------
-
-SELECT * FROM dv_analytics_adhoc.match_3_level_dashboard_churn
-
--- COMMAND ----------
+-- Just some control queries
+SELECT * FROM sample_schema.d7_game_churn_analysis;
 
 SELECT
   date_to_process,
@@ -156,10 +152,6 @@ SELECT
   SUM(dau),
   SUM(d7_churned),
   SUM(d7_churned) / SUM(dau)
-FROM dv_analytics_adhoc.match_3_level_dashboard_churn
+FROM sample_schema.d7_game_churn_analysis
 GROUP BY 1,2
-
--- COMMAND ----------
-
--- MAGIC %python
--- MAGIC dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+;
