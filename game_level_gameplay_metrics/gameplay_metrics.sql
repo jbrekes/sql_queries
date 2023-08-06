@@ -94,8 +94,28 @@ WHERE Q_VAL = 1
 -- COMMAND ----------
 -- VIRTUAL ITEMS USED
 -- Analyze the use of virtual currency in games based on the activity of the corresponding dateToProcess.
+CREATE OR REPLACE TEMP VIEW vo_game_vc_usage AS
+SELECT
+/*+broadcast(app)*/
+  a.APPLICATION_CD,
+  ACCOUNT_ID,  
+  activity_dt,
+  b.col.action,
+  b.col.dateTime AS operation_moment,
+  CASE
+    WHEN FILTER(b.col.actions,element -> element.credits>0 AND element.group.usage = 'IMMEDIATE')[0] IS NULL
+      THEN FILTER(b.col.actions,element -> element.debits>0 AND element.credits=0 ).resourceId
+    ELSE FILTER(b.col.actions,element -> element.credits>0 ).resourceId
+  END AS debited_resource_real
+FROM games_schema.game_activity a
+INNER JOIN vo_apps_WR app 
+  ON a.application_cd = app.application_cd
+LATERAL VIEW EXPLODE(resource_action_lst) b
+WHERE  activity_dt = (SELECT process_dt FROM dates)
+  AND UPPER(b.col.action) IN ('BUYWITHGAMECURRENCY', 'USE')
+;
 
-CREATE OR REPLACE TEMP VIEW vo_aaa_vc_usage AS
+CREATE OR REPLACE TEMP VIEW v1_game_vc_usage AS
 SELECT
 /*+broadcast(b)*/
   a.APPLICATION_CD,
@@ -111,42 +131,19 @@ FROM
   SELECT
     a.*,
     trim(upper(debited_resource_COL))debited_resource_col
-  FROM
-  (
-    SELECT
-    /*+broadcast(app)*/
-      a.APPLICATION_CD,
-      ACCOUNT_ID,  
-      activity_dt,
-      b.col.action,
-      b.col.dateTime AS operation_moment,
-      CASE
-        WHEN filter(b.col.actions,element -> element.credits>0 AND element.group.usage = 'IMMEDIATE')[0] IS NULL
-          THEN filter(b.col.actions,element -> element.debits>0 AND element.credits=0 ).resourceId
-        ELSE filter(b.col.actions,element -> element.credits>0 ).resourceId
-      END AS debited_resource_real
-    FROM PR_ANALYTICS_delta.account_application_activity a
-      inner join vo_apps_WR app 
-      on a.application_cd = app.application_cd
-    LATERAL VIEW EXPLODE(resource_action_lst) b
-    WHERE  activity_dt = (SELECT process_dt FROM dates)
-      AND upper(b.col.action) IN ('BUYWITHGAMECURRENCY', 'USE', 'ACTIVATE')
-  ) A
-  LATERAL VIEW EXPLODE(debited_resource_real) b AS debited_resource_COL
+  FROM vo_game_vc_usage
+  LATERAL VIEW EXPLODE(debited_resource_real) B AS debited_resource_COL
   WHERE trim(upper(debited_resource_COL)) <> 'COINS'
 ) a
-INNER JOIN V_VIRTUAL_ITEM_FULL b
+INNER JOIN V1_VIRTUAL_ITEM_FULL b
 ON a.debited_resource_col = UPPER(TRIM(b.RESOURCE_CD))
   AND a.application_Cd = b.application_Cd
-  ;
-
--- COMMAND ----------
-
--- select count(1) from vo_aaa_vc_usage
+;
 
 -- COMMAND ----------
 
 -- ROUNDS PLAYED
+-- Obtain gameplay data for each game for the date analyzed (rounds played along with other useful data).
 
 CREATE OR REPLACE TEMP VIEW vo_rounds_order AS
 SELECT 
@@ -159,7 +156,6 @@ SELECT
   round_end_dttm,
   ROW_NUMBER () OVER(PARTITION BY a.application_cd, account_id, session_uuid ORDER BY round_start_dttm ASC) AS daily_round_number,
   account_id,
---  application_version_val,
   payer_ind,
   round_uuid,
   session_uuid,
@@ -172,64 +168,43 @@ SELECT
   CASE 
     WHEN room.order_num IS NULL THEN 'Side Content'
     WHEN room.order_num BETWEEN 1 AND 100000 THEN 'Main Content'
-    WHEN room.order_num BETWEEN 100001 AND 200000 THEN 'EOC'
-    WHEN room.order_num >= 200001 THEN 'Side Content'
+    WHEN room.order_num >= 100001 THEN 'Side Content'
   END AS main_content_ind,
   round_result_cd,
-  CASE
-    WHEN round_result_cd = 'win' AND attempt_num < 200 -- Remove Outliers, there are cases with 3000 + attempts, wich is unreal
-    THEN attempt_num
-    ELSE 0
-  END AS attempts_to_win,
   CASE 
-    WHEN UPPER(a.application_family_name) = 'PANDA POP'
-    THEN round_end_map.bubbles_rem
-    ELSE round_moves_stc.remaining 
-  END AS moves_remaining_group,
+    WHEN round_result_cd = 'win' AND attempt_num < 200 THEN attempt_num 
+    ELSE 0 
+  END AS attempts_to_win, -- Remove Outliers, there are cases with 3000 + attempts, wich is unreal
+  round_moves_stc.remaining AS moves_remaining_group,
   round_moves_stc.used AS moves_used,
   CASE
-    WHEN UPPER(a.application_family_name) = 'PANDA POP'
-      THEN round_end_map.popped_qty
-    WHEN UPPER(a.application_family_name) IN ('COOKIE JAM', 'COOKIE JAM BLAST')
+    WHEN UPPER(a.application_family_name) = 'GAME 1'
       THEN round_end_map.explosiveness
-    WHEN UPPER(a.application_family_name) = 'GENIES AND GEMS'
-      THEN AGGREGATE(TRANSFORM(SPLIT(TRIM('[]' FROM round_end_map.ColJewels),','), x -> CAST(x AS INT)), 0, (acc, x) -> acc + x)
-    WHEN UPPER(a.application_family_name) = 'FAMILY GUY'
+    WHEN UPPER(a.application_family_name) = 'GAME 2'
+      THEN AGGREGATE(TRANSFORM(SPLIT(TRIM('[]' FROM round_end_map.exploded),','), x -> CAST(x AS INT)), 0, (acc, x) -> acc + x)
+    WHEN UPPER(a.application_family_name) = 'GAME 3'
       THEN AGGREGATE(TRANSFORM(SPLIT(TRIM('[]' FROM round_end_map.items_cleared_per_move),','), x -> CAST(x AS INT)), 0, (acc, x) -> acc + x)
-    WHEN UPPER(a.application_family_name) = 'FROZEN FREE FALL'
+    WHEN UPPER(a.application_family_name) = 'GAME 4'
       THEN round_end_map.pieces_cleared
     ELSE null
-  END AS items_cleared, -- Same As Explosiveness
+  END AS items_cleared,
   COALESCE(round_end_map.shuffle, 0) AS reshuffle,
   CASE WHEN round_end_map.avg_fps IS NULL THEN round_end_map.fps ELSE round_end_map.avg_fps END AS mean_fps,
---  round_end_map,
   ROUND((round_seconds_qty/1000) / 60, 3) AS round_duration_min    
-FROM pr_analytics_delta.round_event a
+FROM events_schema.rounds a
 INNER JOIN vo_apps_WR app 
   ON a.application_cd = app.application_cd
-LEFT JOIN pr_analytics_lkp.room room
+LEFT JOIN levels_lkp room
   ON upper(a.room_stc.name) = upper(room.room_name)
-  AND coalesce(upper(a.room_stc.location),'') = coalesce(upper(room.location_name),'')
+  AND COALESCE(UPPER(a.room_stc.location),'') = COALESCE(UPPER(room.location_name),'')
   AND a.application_cd = room.application_cd
 WHERE round_start_dt = (SELECT process_dt FROM dates)
 ;
 
 -- COMMAND ----------
 
--- MAGIC %md
--- MAGIC * cookie jam -> moves_left, level_design_moves (initial)
--- MAGIC * cookie jam blast -> moves_left, level_design_moves (initial)
--- MAGIC * Family Guy -> moves_left
--- MAGIC * Frozen Free Fall -> round_moves_stc.remaining (doesn't inform it in round_end_map)
--- MAGIC * Genies and Gems -> moves_left
--- MAGIC * panda_pop -> bubbles_rem (should be???)
--- MAGIC
--- MAGIC
-
--- COMMAND ----------
-
 -- MAGIC %python
--- MAGIC deltaLocation = 'dbfs:/mnt/jc-analytics-databricks-work/dv_analytics_adhoc/match_3_level_dashboard_aux_rounds_order'
+-- MAGIC deltaLocation = 'aux_gameplay_table_location'
 -- MAGIC deltaDf = spark.sql("SELECT * FROM vo_rounds_order")
 -- MAGIC (deltaDf
 -- MAGIC   .write
@@ -242,7 +217,7 @@ WHERE round_start_dt = (SELECT process_dt FROM dates)
 -- COMMAND ----------
 
 -- MAGIC %python
--- MAGIC createDelta = "CREATE TABLE IF NOT EXISTS dv_analytics_adhoc.match_3_level_dashboard_aux_rounds_order USING delta LOCATION 'dbfs:/mnt/jc-analytics-databricks-work/dv_analytics_adhoc/match_3_level_dashboard_aux_rounds_order'"
+-- MAGIC createDelta = "CREATE TABLE IF NOT EXISTS temp_schemas.aux_rounds_order USING delta LOCATION 'aux_gameplay_table_location'"
 -- MAGIC spark.sql(createDelta)
 
 -- COMMAND ----------
@@ -252,15 +227,9 @@ WHERE round_start_dt = (SELECT process_dt FROM dates)
 CREATE OR REPLACE TEMP VIEW vo_rounds_1 AS
 SELECT
     a.*,
-    b.round_start_dttm AS previous_round_start_dttm,
-    b.round_end_dttm AS previous_round_end_dttm
-FROM dv_analytics_adhoc.match_3_level_dashboard_aux_rounds_order a
-LEFT JOIN dv_analytics_adhoc.match_3_level_dashboard_aux_rounds_order b
-ON a.application_cd = b.application_cd
-  AND a.round_start_dt = b.round_start_dt
-  AND a.account_id = b.account_id
-  AND a.session_uuid = b.session_uuid
-  AND a.daily_round_number = b.daily_round_number + 1
+    LAG(round_start_dttm) OVER(PARTITION BY application_cd, account_id ORDER BY round_start_dttm DESC)
+    LAG(round_end_dttm) OVER(PARTITION BY application_cd, account_id ORDER BY round_start_dttm DESC)
+FROM temp_schemas.aux_rounds_order
 ;
 
 -- COMMAND ----------
@@ -270,17 +239,17 @@ ON a.application_cd = b.application_cd
 CREATE OR REPLACE TEMP VIEW vo_sessions AS
 SELECT
 /*+broadcast(app)*/
-    account_id,
-    session_dt,
-    a.application_family_name,
-    session_uuid,
-    session_start_dttm,
-    session_end_dttm
-  FROM pr_analytics_delta.session_application_activity a
-      inner join vo_apps_WR app 
-      on a.application_cd = app.application_cd
-  WHERE session_dt = (SELECT process_dt FROM dates)
- ;
+  account_id,
+  session_dt,
+  a.application_family_name,
+  session_uuid,
+  session_start_dttm,
+  session_end_dttm
+FROM games_schema.game_activity a
+INNER JOIN vo_apps_WR app 
+  ON a.application_cd = app.application_cd
+WHERE session_dt = (SELECT process_dt FROM dates)
+;
 
 -- COMMAND ----------
 
@@ -297,11 +266,12 @@ ON UPPER(rounds.application_family_name) = UPPER(sessions.application_family_nam
   AND rounds.round_start_dt = sessions.session_dt
   AND rounds.account_id = sessions.account_id
   AND rounds.session_uuid = sessions.session_uuid
-  ;
+;
 
 -- COMMAND ----------
 
 -- GET THE MOMMENT EACH VIRTUAL ITEM WAS USED IN THE SESSION
+-- We need to know if the user used an item while playing a round, or if it was consumed at another time (for example, in the start menu or in an additional event).
 
 CREATE OR REPLACE TEMP VIEW vo_item_round AS
 SELECT
@@ -327,7 +297,7 @@ ON a.application_cd = b.application_cd
   AND a.round_start_dt = b.activity_dt
   AND a.account_id = b.account_id
   AND operation_moment BETWEEN session_start_dttm AND session_end_dttm;
-
+;
 -- COMMAND ----------
 
 -- KEEP ONLY RELEVANT RELATIONSHIPS
@@ -342,7 +312,6 @@ FROM
     application_family_name,
     market_cd,
     round_start_dt,
---    SUBSTRING_INDEX(application_version_val, '.', 2) as short_app_version_val,
     account_id,
     payer_ind,
     round_uuid,
@@ -362,7 +331,8 @@ FROM
     round_duration_min    
   FROM vo_item_round
 )
-WHERE result = 1;  
+WHERE result = 1
+;  
 
 -- COMMAND ----------
 
@@ -372,7 +342,6 @@ SELECT
   application_family_name,
   market_cd,
   round_start_dt,
---  short_app_version_val,
   payer_ind,
   room_location,
   room_name,
@@ -402,13 +371,11 @@ SELECT
   AVG(round_duration_min) AS round_duration_min
 FROM vo_final
 GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+;
 
 -- COMMAND ----------
-
--- MAGIC %md
--- MAGIC Add Daily Level Players
-
--- COMMAND ----------
+-- The above information is recorded at user and level level, but the same user can play several levels in the same day. 
+-- As required by the project, we need to obtain the DAU data for each game, regardless of how many levels have been played.
 
 CREATE OR REPLACE TEMP VIEW vo_daily_players AS
 SELECT 
@@ -417,7 +384,6 @@ SELECT
   a.application_family_name,
   a.market_cd,
   round_start_dt,
---  SUBSTRING_INDEX(application_version_val, '.', 2) as short_app_version_val,
   payer_ind,
   room_stc.location AS room_location,
   room_stc.name AS room_name,
@@ -428,14 +394,13 @@ SELECT
   CASE 
     WHEN room.order_num IS NULL THEN 'Side Content'
     WHEN room.order_num BETWEEN 1 AND 100000 THEN 'Main Content'
-    WHEN room.order_num BETWEEN 100001 AND 200000 THEN 'EOC'
-    WHEN room.order_num >= 200001 THEN 'Side Content'
+    WHEN room.order_num >= 100001 THEN 'Side Content'
   END AS main_content_ind,
   COUNT(DISTINCT account_id) AS daily_level_players
-FROM pr_analytics_delta.round_event a
+FROM games_schema.game_activity a
 INNER JOIN vo_apps_WR app 
   ON a.application_cd = app.application_cd
-LEFT JOIN pr_analytics_lkp.room room
+LEFT JOIN levels_lkp room
   ON upper(a.room_stc.name) = upper(room.room_name)
   AND coalesce(upper(a.room_stc.location),'') = coalesce(upper(room.location_name),'')
   AND a.application_cd = room.application_cd
@@ -456,7 +421,6 @@ SELECT
   a.application_family_name,
   a.market_cd,
   a.round_start_dt,
---  a.short_app_version_val,
   a.payer_ind,
   a.room_location,
   a.room_name,
@@ -480,51 +444,21 @@ FROM vo_final_2 a
 INNER JOIN vo_daily_players b
 ON a.application_cd = b.application_cd
   AND a.round_start_dt = b.round_start_dt
---  AND a.short_app_version_val = b.short_app_version_val
   AND a.payer_ind = b.payer_ind
   AND a.room_location = b.room_location
   AND a.room_name = b.room_name
   AND a.room_order = b.room_order
   AND a.main_content_ind = b.main_content_ind
+;
 
 -- COMMAND ----------
 
---%python
---dbutils.fs.rm('dbfs:/mnt/jc-analytics-databricks-work/dv_analytics_adhoc/match_3_level_dashboard_gameplay', True)
-
--- COMMAND ----------
-
---DROP TABLE dv_analytics_work.match_3_level_dashboard_gameplay
-
--- COMMAND ----------
-
---CREATE TABLE dv_analytics_work.match_3_level_dashboard_gameplay
---USING delta
---PARTITIONED BY (round_start_dt)
---LOCATION 'dbfs:/mnt/jc-analytics-databricks-work/dv_analytics_adhoc/match_3_level_dashboard_gameplay'
---AS
---SELECT * FROM vo_final_3
-
--- COMMAND ----------
-
-DELETE FROM dv_analytics_work.match_3_level_dashboard_gameplay
+DELETE FROM custom_analysis_schema.gameplay_level_analysis
 WHERE round_start_dt = (CASE WHEN '$dateToProcess' <> 'null' THEN '$dateToProcess' ELSE date_add(CURRENT_DATE, -1) END)
---  OR round_start_dt < CURRENT_DATE - 30
+;
 
 -- COMMAND ----------
 
-INSERT INTO dv_analytics_work.match_3_level_dashboard_gameplay
+INSERT INTO custom_analysis_schema.gameplay_level_analysis
 SELECT * FROM vo_final_3
-
--- COMMAND ----------
-
-SELECT round_start_dt, count(*) FROM dv_analytics_work.match_3_level_dashboard_gameplay GROUP BY 1
-
--- COMMAND ----------
-
-SELECT * FROM dv_analytics_work.match_3_level_dashboard_gameplay
-
--- COMMAND ----------
-
--- MAGIC %python
--- MAGIC dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+;
