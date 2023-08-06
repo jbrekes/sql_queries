@@ -5,11 +5,8 @@
 
 -- MAGIC %md
 -- MAGIC # Game Level Dashboard - Gameplay Metrics
--- MAGIC
 -- MAGIC [document for requirements](link_to_document.com)
--- MAGIC
 -- MAGIC [Quadrant + Wireframe](link_to_mode_documentation.com)
--- MAGIC
 
 -- COMMAND ----------
 -- Select the date and games to be processed
