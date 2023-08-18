@@ -1,14 +1,14 @@
-# Day-7 Churn Calculation in Games
+# 🎮 Day-7 Churn Calculation in Games
 
 This repository contains a Databricks notebook that demonstrates advanced SQL skills by calculating Day-7 churn for specific games. The notebook extracts and processes game event data to determine whether players have churned (not played for 7 or more days) and aggregates the results for analysis.
 
-## Tables Used
+## 📊 Tables Used
 
 1. `round_event_raw`: Contains data related to the rounds played in each game. This table provides information about the players, rounds, applications, and more.
 
 2. `room_lkp`: A lookup table that contains all available rooms (levels) designed for each game. This table provides additional information about the rooms, such as names and locations.
 
-## Highlights and Tools
+## 🌟 Highlights and Tools
 
 - **Widget Usage**: The notebook showcases the use of Databricks widgets to dynamically set the processing date, offering flexibility in analyzing different time periods.
 
@@ -20,7 +20,7 @@ This repository contains a Databricks notebook that demonstrates advanced SQL sk
 
 - **Delta Tables**: The notebook demonstrates the use of Delta tables to efficiently store and manage the churn analysis results, allowing for faster queries and optimizations.
 
-## How It Works
+## 💡 How It Works
 
 1. The notebook begins by creating a temporary view named `dateToProcess` using a widget to set the processing date.
 
@@ -34,7 +34,7 @@ This repository contains a Databricks notebook that demonstrates advanced SQL sk
 
 6. The notebook executes control queries to manage the Delta table.
 
-## How to Use
+## 🚀 How to Use
 
 1. Clone this repository to your Databricks environment.
 2. Open the notebook `Churn_Analysis.ipynb` in your Databricks workspace.
@@ -43,11 +43,11 @@ This repository contains a Databricks notebook that demonstrates advanced SQL sk
 5. Explore the results in the generated Delta table.
 6. Customize the notebook or queries to match your specific game data and requirements.
 
-## Contributing
+## 🤝 Contributing
 
 We welcome contributions from the community to enhance and improve this churn analysis notebook. If you find a bug, have a suggestion, or want to add a new feature, please feel free to open an issue or submit a pull request.
 
-## License
+## 📜 License
 
 This project is licensed under the [MIT License](LICENSE).
 
