@@ -1,6 +1,6 @@
 # SQL Queries
  
-This repository contains a collection of complex and advanced SQL queries that I have designed and used during my work and personal projects. These queries demonstrate my mastery of SQL and highlight my ability to solve problems with complex data.
+This repository contains a collection of complex and advanced SQL queries that I have designed and used for diverse purposes. These queries demonstrate my mastery of SQL and highlight my ability to solve problems with complex data.
 
 Please note that all column, table, and schema names have been altered to avoid compromising sensitive information for any reason.
 
